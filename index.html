@@ -1,1 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Prachar DOOH — Live Logbook (Hosted)</title>
+<style>
+  :root{--bg:#071025;--card:#0b1220;--muted:#94a3b8;--accent:#06b6d4}
+  body{margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#071025,#071b2b);color:#e6eef6}
+  .wrap{max-width:1100px;margin:18px auto;padding:18px}
+  .card{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+  label{display:block;font-size:13px;color:var(--muted);margin-top:8px}
+  input,select,textarea,button{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+  .btn{display:inline-block;padding:8px 12px;border-radius:8px;background:var(--accent);color:#022}
+  .grid{display:grid;grid-template-columns:1fr 360px;gap:12px}
+  .list{max-height:420px;overflow:auto;margin-top:12px}
+  .item{display:flex;justify-content:space-between;align-items:center;padding:10px;border-radius:10px;margin-bottom:10px;background:linear-gradient(90deg,rgba(255,255,255,0.02),transparent)}
+  .meta{font-size:12px;color:var(--muted)}
+  .muted{color:var(--muted)}
+  .small{padding:6px 8px;font-size:13px;border-radius:8px}
+  @media(max-width:880px){ .grid{grid-template-columns:1fr} }
+  .hint{font-size:13px;color:var(--muted);margin-top:8px}
+  a.link{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <h2 style="margin:0">Prachar DOOH — Live Logbook</h2>
+        <div class="muted">Hosted on GitHub Pages — embed via iframe in Hostinger AI</div>
+      </div>
+      <div id="clock" style="font-weight:700"></div>
+    </div>
+
+    <div class="grid" style="margin-top:12px">
+      <main class="card" style="padding:12px">
+        <h3 style="margin-top:0">Add booking</h3>
+        <label>Client / Ad name</label>
+        <input id="client" placeholder="e.g. ABC Foods — Banner A" />
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <div style="flex:1">
+            <label>Location</label>
+            <select id="locationSelect"><option>Loading locations…</option></select>
+          </div>
+          <div style="width:180px">
+            <label>Start (datetime)</label>
+            <input id="start" type="datetime-local" />
+          </div>
+          <div style="width:120px">
+            <label>Duration (mins)</label>
+            <input id="duration" type="number" min="1" value="30" />
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <div style="flex:1">
+            <label>Rate (₹/min)</label>
+            <input id="rate" type="number" value="10" />
+          </div>
+          <div style="width:120px">
+            <label>Repeats</label>
+            <input id="repeats" type="number" value="1" min="1" />
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button id="addBtn" class="small">Add Booking</button>
+          <button id="exportBtn" class="small">Export CSV</button>
+          <button id="clearBtn" class="small">Clear All</button>
+        </div>
+
+        <hr style="margin:12px 0;border:0;border-top:1px solid rgba(255,255,255,0.04)" />
+
+        <h4 style="margin:0 0 8px 0">Active bookings</h4>
+        <div class="list" id="bookingList" aria-live="polite"></div>
+
+      </main>
+
+      <aside class="card" style="padding:12px">
+        <h4 style="margin-top:0">Locations</h4>
+        <div id="locInfo" class="muted">Auto-import from prachardooh.com (best-effort) or paste list below.</div>
+
+        <div style="margin-top:8px">
+          <button id="autoImport" class="small">Auto-import locations from site</button>
+          <div class="hint">If auto-import fails due to CORS, paste your locations (one per line) below and click "Import list".</div>
+          <textarea id="manualLocations" style="height:120px;margin-top:8px" placeholder="Paste location names here, one per line (e.g. MG Road, Cyber City...)"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button id="importList" class="small">Import list</button>
+            <button id="resetLoc" class="small">Reset to demo</button>
+          </div>
+        </div>
+
+        <hr style="margin:12px 0;border:0;border-top:1px solid rgba(255,255,255,0.04)" />
+        <div class="muted">Embed</div>
+        <div style="margin-top:6px;font-size:13px">Iframe snippet to paste in Hostinger AI Builder (replace <strong>YOUR_GITHUB_USER</strong>):</div>
+        <textarea id="iframeCode" style="height:90px;margin-top:8px;font-size:13px">&lt;iframe src="https://YOUR_GITHUB_USER.github.io/prachardooh-logbook/" style="width:100%;height:700px;border:0;border-radius:8px;"&gt;&lt;/iframe&gt;</textarea>
+
+        <div style="margin-top:8px" class="muted">Notes: saves in browser storage (localStorage). For multi-user live sync later we can add a server API.</div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Hosted index.html — auto-import A (all locations) + localStorage booking system */
+const LS = 'prachard_logbook_v1';
+let state = { locations: [], bookings: [] };
+const clockEl = document.getElementById('clock');
+
+function uid(){ return Math.random().toString(36).slice(2,9) }
+function nowISO(){ return new Date().toISOString() }
+function load(){ try{ const raw = localStorage.getItem(LS); state = raw ? JSON.parse(raw) : {locations:[],bookings:[]}; if(!state.locations) state.locations=[]; if(!state.bookings) state.bookings=[]; }catch(e){ state = {locations:[],bookings:[]} } }
+function save(){ localStorage.setItem(LS, JSON.stringify(state)) }
+function formatMoney(n){ return Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}) }
+
+function renderLocations(){
+  const sel = document.getElementById('locationSelect');
+  sel.innerHTML = '';
+  if(!state.locations || state.locations.length===0){ sel.innerHTML = '<option value=\"\">No locations</option>'; document.getElementById('locInfo').textContent = 'No locations loaded.'; return; }
+  state.locations.forEach(l => {
+    const o = document.createElement('option');
+    o.value = l.id || l.name || l;
+    o.textContent = l.name || l;
+    sel.appendChild(o);
+  });
+  document.getElementById('locInfo').textContent = `Loaded ${state.locations.length} locations.`;
+}
+
+function renderBookings(){
+  const list = document.getElementById('bookingList');
+  list.innerHTML = '';
+  let totalBilled = 0, totalMin = 0;
+  const now = Date.now();
+  state.bookings.sort((a,b)=> new Date(a.start) - new Date(b.start));
+  state.bookings.forEach(b=>{
+    const s = new Date(b.start).getTime();
+    const durMs = (b.duration||0) * 60000;
+    const end = s + durMs;
+    const elapsedMin = Math.max(0, Math.floor(Math.min(now - s, durMs) / 60000));
+    const remainingMin = Math.max(0, Math.ceil((end - now)/60000));
+    const billed = elapsedMin * (b.rate||0) * (b.repeats||1);
+    totalBilled += billed;
+    totalMin += elapsedMin;
+
+    const div = document.createElement('div'); div.className = 'item';
+    div.innerHTML = `<div style="flex:1">
+        <div style="font-weight:700">${escapeHtml(b.client)}</div>
+        <div class="meta">${escapeHtml(getLocationName(b.locationId))} • ${new Date(b.start).toLocaleString()}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="meta">Elapsed: ${elapsedMin}m • Left: ${remainingMin}m</div>
+        <div style="margin-top:8px"><button data-id="${b.id}" data-action="toggle" class="small">${b.active? 'Stop':'Start'}</button> <button data-id="${b.id}" data-action="delete" class="small">Delete</button></div>
+        <div style="margin-top:6px;font-weight:700">₹${formatMoney(billed)}</div>
+      </div>`;
+    list.appendChild(div);
+  });
+  // action handlers
+  list.querySelectorAll('button').forEach(btn=>{
+    btn.onclick = ()=> {
+      const id = btn.dataset.id; const action = btn.dataset.action;
+      if(action === 'toggle'){ toggleActive(id); }
+      if(action === 'delete'){ if(confirm('Delete?')){ state.bookings = state.bookings.filter(x=>x.id!==id); save(); renderBookings(); } }
+    }
+  });
+}
+
+function getLocationName(id){
+  const l = state.locations.find(x=> (x.id||x.name||x) == id);
+  return l ? (l.name || l) : id || '—';
+}
+
+function escapeHtml(s){ return String(s||'').replace(/[&<>\"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'})[c]) }
+
+document.getElementById('addBtn').addEventListener('click', ()=>{
+  const client = document.getElementById('client').value.trim() || 'Untitled';
+  const loc = document.getElementById('locationSelect').value || (document.getElementById('locationSelect').selectedOptions[0] && document.getElementById('locationSelect').selectedOptions[0].text) || '';
+  const startVal = document.getElementById('start').value;
+  const start = startVal ? new Date(startVal).toISOString() : new Date().toISOString();
+  const duration = Math.max(1, parseInt(document.getElementById('duration').value || 30));
+  const rate = Math.max(0, parseFloat(document.getElementById('rate').value || 0));
+  const repeats = Math.max(1, parseInt(document.getElementById('repeats').value||1));
+  // overlap check
+  const overlap = state.bookings.some(b=> (b.locationId == loc) && isOverlap(b.start, b.duration, start, duration) && b.active);
+  if(overlap && !confirm('Overlap detected at this location. Add anyway?')) return;
+  const booking = { id: uid(), client, locationId: loc, start, duration, rate, repeats, active: true, createdAt: nowISO() };
+  state.bookings.push(booking);
+  save(); renderBookings(); alert('Added');
+});
+
+function isOverlap(aStart, aDur, bStart, bDur){
+  const a1 = new Date(aStart).getTime(), a2 = a1 + (aDur*60000);
+  const b1 = new Date(bStart).getTime(), b2 = b1 + (bDur*60000);
+  return (a1 < b2 && b1 < a2);
+}
+
+function toggleActive(id){
+  const b = state.bookings.find(x=>x.id===id); if(!b) return;
+  b.active = !b.active; if(!b.active) b.stoppedAt = nowISO(); else b.stoppedAt = null;
+  save(); renderBookings();
+}
+
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  if(!state.bookings.length){ alert('No bookings'); return; }
+  const rows = [['id','client','location','start','duration_min','rate','repeats','active','createdAt']];
+  state.bookings.forEach(b=> rows.push([b.id, b.client, getLocationName(b.locationId), b.start, b.duration, b.rate, b.repeats, b.active, b.createdAt]));
+  const csv = rows.map(r=> r.map(c=> `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'prachard_bookings.csv'; a.click(); URL.revokeObjectURL(url);
+});
+
+document.getElementById('clearBtn').addEventListener('click', ()=>{ if(confirm('Clear ALL bookings and locations?')){ state = {locations:[],bookings:[]}; save(); renderLocations(); renderBookings(); } });
+
+// locations import
+document.getElementById('autoImport').addEventListener('click', async ()=>{
+  const site = 'https://prachardooh.com/where-we-are';
+  const proxyCandidates = [
+    'https://api.allorigins.win/raw?url=',
+    'https://r.jina.ai/http://',
+    'https://thingproxy.freeboard.io/fetch/'
+  ];
+  let html = null, used = null;
+  for(const p of proxyCandidates){
+    try{
+      const url = (p.endsWith('http://') || p.endsWith('https://')) ? p + site : p + encodeURIComponent(site);
+      const r = await fetch(url, {cache:'no-cache'});
+      if(!r.ok) continue;
+      html = await r.text(); used = p; break;
+    }catch(e){ /* try next */ }
+  }
+  if(!html){
+    alert('Auto-import failed (CORS/proxy). Please paste locations manually in the box on the right or host this file on your server and use server-side scraping.');
+    return;
+  }
+  // parse headings/li/a
+  const parser = new DOMParser(); const doc = parser.parseFromString(html, 'text/html');
+  let nodes = [];
+  ['h1','h2','h3','li','a'].forEach(sel=>{
+    Array.from(doc.querySelectorAll(sel)).forEach(n=>{
+      const t = n.textContent.trim();
+      if(t.length>2 && t.length<90) nodes.push(t.replace(/\s+/g,' '));
+    });
+  });
+  // dedupe
+  const seen = {}; const clean = [];
+  nodes.forEach(n=>{ const lower=n.toLowerCase(); if(lower.includes('read more')) return; if(!seen[n]){ seen[n]=1; clean.push(n); } });
+  if(clean.length===0){ alert('Auto-parse found no locations. Use manual paste.'); return; }
+  state.locations = clean.slice(0,80).map(n=>({ id: 'loc_' + Math.random().toString(36).slice(2,7), name: n }));
+  save(); renderLocations(); alert('Imported ' + state.locations.length + ' locations (via proxy: ' + used + ')');
+});
+
+// manual import
+document.getElementById('importList').addEventListener('click', ()=>{
+  const text = document.getElementById('manualLocations').value.trim();
+  if(!text){ alert('Paste one location name per line.'); return; }
+  const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  state.locations = lines.map(n=> ({ id: 'loc_' + Math.random().toString(36).slice(2,7), name: n }));
+  save(); renderLocations(); alert('Imported ' + lines.length + ' locations');
+});
+
+document.getElementById('resetLoc').addEventListener('click', ()=>{ if(!confirm('Reset to demo locations?')) return; state.locations = [
+  {id:'demo1',name:'Demo — Main Street'},
+  {id:'demo2',name:'Demo — Market Road'},
+  {id:'demo3',name:'Demo — City Mall'},
+  {id:'demo4',name:'Demo — Railway Chowk'},
+  {id:'demo5',name:'Demo — Business Park'}
+]; save(); renderLocations(); alert('Demo locations loaded') });
+
+// initial load
+load();
+(async ()=>{
+  // try silent auto-import via proxy once
+  try{
+    const r = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://prachardooh.com/where-we-are'));
+    if(r.ok){
+      const html = await r.text();
+      const doc = new DOMParser().parseFromString(html,'text/html');
+      let nodes = [];
+      ['h1','h2','h3','li','a'].forEach(sel=>{
+        Array.from(doc.querySelectorAll(sel)).forEach(n=>{
+          const t = n.textContent.trim();
+          if(t.length>2 && t.length<90) nodes.push(t.replace(/\s+/g,' '));
+        });
+      });
+      const seen={}; const clean=[];
+      nodes.forEach(n=>{ if(!seen[n] && !n.toLowerCase().includes('read more')){ seen[n]=1; clean.push(n)} });
+      if(clean.length) state.locations = clean.slice(0,80).map(n=>({id:'loc_'+Math.random().toString(36).slice(2,7), name:n}));
+    }
+  }catch(e){/* ignore */ }
+  if(!state.locations || !state.locations.length) {
+    state.locations = [
+      {id:'demo1',name:'Demo — Main Street'},
+      {id:'demo2',name:'Demo — Market Road'},
+      {id:'demo3',name:'Demo — City Mall'}
+    ];
+  }
+  save(); renderLocations(); renderBookings();
+})();
+
+// live tick
+setInterval(()=>{ clockEl.textContent = new Date().toLocaleString(); renderBookings(); }, 1000);
+</script>
+</body>
+</html>
 
